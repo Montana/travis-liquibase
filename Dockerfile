@@ -50,8 +50,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     chmod +x lpm && \
     ln -s /liquibase/lpm /usr/local/bin/lpm
 
-# Install PostgreSQL JDBC driver
-RUN wget -q https://jdbc.postgresql.org/download/postgresql-42.7.1.jar -O /liquibase/lib/postgresql.jar
+# PostgreSQL JDBC driver is already included in Liquibase 4.32.0
+# No need to download separately to avoid duplicate JARs
 
 # Set up extensions directory
 RUN mkdir -p /liquibase/extensions
@@ -62,10 +62,9 @@ RUN chown -R liquibase:liquibase /liquibase
 # Switch to liquibase user
 USER liquibase
 
-# Set environment variables
+# Environment variables
 ENV LIQUIBASE_HOME=/liquibase
 ENV PATH="$LIQUIBASE_HOME:$PATH"
-ENV LIQUIBASE_CLASSPATH="/liquibase/lib/postgresql.jar"
 
 # Expose port for Liquibase Hub
 EXPOSE 8080
