@@ -1,5 +1,5 @@
 language: shell
-dist: noble # Use Ubuntu 20.04 instead of xenial (16.04)
+dist: focal  # Use Ubuntu 20.04 instead of xenial (16.04)
 
 services:
   - docker
@@ -19,35 +19,35 @@ before_install:
   - sudo apt-get update
   - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
   - docker --version
-  
+
   # Clean up any existing containers/images
   - docker system prune -f || true
-  
+
   # Pull PostgreSQL image early to avoid timeout during tests
   - docker pull postgres:15-alpine
 
 install:
   - echo "[+] Building Liquibase Docker image from Dockerfile..."
   - docker build --no-cache -t $IMAGE_NAME .
-  
+
 script:
   # Start PostgreSQL container
   - echo "[+] Starting PostgreSQL container..."
   - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:15-alpine
-  
+
   # Wait for PostgreSQL to be ready
   - echo "[+] Waiting for PostgreSQL to be ready..."
   - sleep 10
   - docker exec $DB_CONTAINER pg_isready -U $DB_USER -d $DB_NAME
-  
+
   # Test Liquibase Docker image
   - echo "[+] Testing Liquibase installation..."
   - docker run --rm $IMAGE_NAME --version
-  
+
   # Test database connectivity with simple command first
   - echo "[+] Testing basic database connectivity..."
   - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --help
-  
+
   # Create a minimal changelog for testing and test status command
   - echo "[+] Testing status command with changelog..."
   - |
@@ -58,17 +58,17 @@ script:
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                           http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
-        
+
         <changeSet id="test-connection" author="travis">
             <comment>Test connection changeSet</comment>
             <sql>SELECT 1;</sql>
         </changeSet>
     </databaseChangeLog>
     EOF
-  
+
   # Test status command with proper volume mounting and working directory
   - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
-  
+
   # Run changelog update if it exists
   - |
     if [ -f "changelog.xml" ] || [ -f "changelog.sql" ] || [ -f "changelog.yaml" ]; then
@@ -77,7 +77,7 @@ script:
       if [ -f "changelog.xml" ]; then CHANGELOG_FILE="changelog.xml"; fi
       if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
       if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
-      
+
       # First run status to see what changes will be applied
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -87,7 +87,7 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         status --verbose
-      
+
       # Then run the update
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -97,7 +97,7 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         update
-        
+
       # Verify the changes were applied
       echo "[+] Verifying changes were applied..."
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
@@ -110,11 +110,11 @@ script:
         status --verbose
 
       # === NEW DATABASE INSPECTION SECTION ===
-      
+
       echo "========================================"
       echo "=== DATABASE INSPECTION RESULTS ==="
       echo "========================================"
-      
+
       # Show deployment history
       echo "[+] === LIQUIBASE DEPLOYMENT HISTORY ==="
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
@@ -125,7 +125,7 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         history
-      
+
       # Generate database snapshot (JSON format)
       echo "[+] === GENERATING DATABASE SNAPSHOT ==="
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
@@ -137,61 +137,61 @@ script:
         --output-file=database-snapshot.json \
         snapshot --snapshot-format=json
       echo "[+] Database snapshot saved to database-snapshot.json"
-      
+
       # Show what tables were created
       echo "[+] === DATABASE TABLES ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT table_name, table_type 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
+      SELECT table_name, table_type
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
       ORDER BY table_name;
       "
-      
+
       # Show Liquibase tracking
       echo "[+] === LIQUIBASE CHANGE LOG TRACKING ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
       SELECT id, author, filename, dateexecuted, orderexecuted, exectype, md5sum
-      FROM databasechangelog 
+      FROM databasechangelog
       ORDER BY orderexecuted;
       "
-      
+
       # Show your business data
       echo "[+] === YOUR BUSINESS DATA ==="
       echo "[+] Roles table:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;" || echo "No roles table found"
-      
+
       echo "[+] Users table (if exists):"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;" || echo "No users table found"
-      
+
       echo "[+] User-Role relationships (if exist):"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT u.username, r.role_name 
-      FROM users u 
-      JOIN user_roles ur ON u.id = ur.user_id 
+      SELECT u.username, r.role_name
+      FROM users u
+      JOIN user_roles ur ON u.id = ur.user_id
       JOIN roles r ON ur.role_id = r.id;
       " || echo "No user-role relationships found"
-      
+
       # Show table structures
       echo "[+] === TABLE STRUCTURES ==="
       echo "[+] Users table structure:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users" || echo "No users table"
-      
+
       echo "[+] Roles table structure:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d roles" || echo "No roles table"
-      
+
       echo "[+] User_roles table structure:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles" || echo "No user_roles table"
-      
+
       # Show foreign key relationships
       echo "[+] === DATABASE CONSTRAINTS ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT 
-          tc.table_name, 
-          kcu.column_name, 
+      SELECT
+          tc.table_name,
+          kcu.column_name,
           ccu.table_name AS foreign_table_name,
-          ccu.column_name AS foreign_column_name 
-      FROM 
-          information_schema.table_constraints AS tc 
+          ccu.column_name AS foreign_column_name
+      FROM
+          information_schema.table_constraints AS tc
           JOIN information_schema.key_column_usage AS kcu
             ON tc.constraint_name = kcu.constraint_name
           JOIN information_schema.constraint_column_usage AS ccu
@@ -199,24 +199,24 @@ script:
       WHERE tc.constraint_type = 'FOREIGN KEY'
       ORDER BY tc.table_name;
       "
-      
+
       # Show indexes
       echo "[+] === DATABASE INDEXES ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT 
+      SELECT
           schemaname,
           tablename,
           indexname,
           indexdef
-      FROM pg_indexes 
+      FROM pg_indexes
       WHERE schemaname = 'public'
       ORDER BY tablename, indexname;
       "
-      
+
       echo "========================================"
       echo "=== DATABASE INSPECTION COMPLETE ==="
       echo "========================================"
-      
+
     else
       echo "[+] No changelog files found, skipping update test"
     fi
@@ -245,7 +245,7 @@ jobs:
   include:
     - stage: "Build and Test"
       name: "Liquibase Pro Docker Build"
-    
+
     # Optional: Test with different PostgreSQL versions
     - stage: "Extended Tests"
       name: "Test with PostgreSQL 14"
@@ -262,7 +262,7 @@ jobs:
               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
               xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                                 http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
-              
+
               <changeSet id="test-connection-pg14" author="travis">
                   <comment>Test connection changeSet for PostgreSQL 14</comment>
                   <sql>SELECT version();</sql>
