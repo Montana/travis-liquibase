@@ -7,17 +7,13 @@ env:
     - LIQUIBASE_VERSION=4.32.0
 
 before_install:
-  # Download and extract Liquibase Pro
-  - curl -L -o liquibase.tar.gz "https://download.liquibase.com/liquibase-pro/liquibase-pro-${LIQUIBASE_VERSION}.tar.gz"
   - mkdir liquibase
-  - tar -xzf liquibase.tar.gz -C liquibase
-  - export PATH=$PWD/liquibase/liquibase-$LIQUIBASE_VERSION:$PATH
-
-  # Add Pro license key (must be set in Travis repo settings)
+  - tar -xzf resources/liquibase-pro-4.32.0.tar.gz -C liquibase
+  - export PATH=$PWD/liquibase/liquibase-4.32.0:$PATH
+  - echo "liquibase.licenseKey: $LIQUIBASE_LICENSE_KEY" > liquibase/liquibase-4.32.0/liquibase.properties
   - echo "liquibase.licenseKey: $LIQUIBASE_LICENSE_KEY" > liquibase/liquibase-$LIQUIBASE_VERSION/liquibase.properties
 
 script:
-  # Run Liquibase using an in-memory H2 database and your changelog
   - liquibase --changeLogFile=changelog.xml \
               --url=jdbc:h2:mem:testdb \
               --username=sa \
