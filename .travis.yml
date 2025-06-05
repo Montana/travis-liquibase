@@ -12,24 +12,45 @@ env:
     - DB_PASS=secret
     - DB_PORT=5432
     - DB_CONTAINER=pgdb
+    - DOCKER_BUILDKIT=1
+    - COMPOSE_DOCKER_CLI_BUILD=1
+
+matrix:
+  include:
+    - name: "PostgreSQL 15"
+      env: POSTGRES_VERSION=15-alpine
+    - name: "PostgreSQL 14"
+      env: POSTGRES_VERSION=14-alpine
+    - name: "PostgreSQL 13"
+      env: POSTGRES_VERSION=13-alpine
 
 before_install:
   - sudo apt-get update
   - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
   - docker --version
   - docker system prune -f || true
+  - docker pull postgres:${POSTGRES_VERSION:-15-alpine}
   - docker pull postgres:15-alpine
 
 install:
   - echo "[+] Building Liquibase Docker image from Dockerfile..."
-  - docker build --no-cache -t $IMAGE_NAME .
+  - docker build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1 -t $IMAGE_NAME .
 
 script:
   - echo "[+] Starting PostgreSQL container..."
-  - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:15-alpine
+  - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:${POSTGRES_VERSION:-15-alpine}
   - echo "[+] Waiting for PostgreSQL to be ready..."
-  - sleep 10
-  - docker exec $DB_CONTAINER pg_isready -U $DB_USER -d $DB_NAME
+  - |
+    for i in {1..30}; do
+      if docker exec $DB_CONTAINER pg_isready -U $DB_USER -d $DB_NAME; then
+        break
+      fi
+      if [ $i -eq 30 ]; then
+        echo "PostgreSQL failed to start within 30 seconds"
+        exit 1
+      fi
+      sleep 1
+    done
   - echo "[+] Testing Liquibase installation..."
   - docker run --rm $IMAGE_NAME --version
   - echo "[+] Testing basic database connectivity..."
@@ -61,6 +82,7 @@ script:
       if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
       if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
 
+      echo "[+] Testing rollback functionality..."
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
         --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
@@ -68,7 +90,7 @@ script:
         --password=$DB_PASS \
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
-        status --verbose
+        rollback --tag=test_rollback
 
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -79,6 +101,15 @@ script:
         --changelog-file=$CHANGELOG_FILE \
         update
 
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --changelog-file=$CHANGELOG_FILE \
+        tag test_rollback
+
       echo "[+] Verifying changes were applied..."
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -88,7 +119,6 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         status --verbose
-
 
       echo "========================================"
       echo "=== DATABASE INSPECTION RESULTS ==="
@@ -201,43 +231,34 @@ after_script:
 cache:
   directories:
     - $HOME/docker
+  pip: true
+  apt: true
 
 notifications:
   email:
     on_success: change
     on_failure: always
-
-jobs:
-  include:
-    - stage: "Build and Test"
-      name: "Liquibase Pro Docker Build"
-
-    - stage: "Extended Tests"
-      name: "Test with PostgreSQL 14"
-      env:
-        - POSTGRES_VERSION=14-alpine
-      script:
-        - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:$POSTGRES_VERSION
-        - sleep 10
-        - |
-          cat > test-changelog.xml << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <databaseChangeLog
-              xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-              xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-                                http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
-
-              <changeSet id="test-connection-pg14" author="travis">
-                  <comment>Test connection changeSet for PostgreSQL 14</comment>
-                  <sql>SELECT version();</sql>
-              </changeSet>
-          </databaseChangeLog>
-          EOF
-        - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
+  slack:
+    secure: ${SLACK_WEBHOOK_URL}
 
 branches:
   only:
     - master
     - develop
-    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/  
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
+
+stages:
+  - name: "Build and Test"
+  - name: "Extended Tests"
+  - name: "Deploy"
+    if: branch = master
+
+deploy:
+  provider: script
+  script: |
+    if [ "$TRAVIS_BRANCH" = "master" ]; then
+      echo "Deploying to production..."
+      # Add your deployment commands here
+    fi
+  on:
+    branch: master
