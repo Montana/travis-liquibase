@@ -1,21 +1,33 @@
-language: java
-jdk:
-  - openjdk17
+language: minimal
+
+services:
+  - docker
+  - postgresql
 
 env:
   global:
     - LIQUIBASE_VERSION=4.32.0
+    - DB_NAME=liquibasedb
+    - DB_USER=liquibase
+    - DB_PASS=secret
+    - DB_HOST=localhost
+    - DB_PORT=5432
+    - LIQUIBASE_LICENSE_KEY=secure_value_set_in_UI
 
-before_install:
-  - mkdir liquibase
-  - tar -xzf resources/liquibase-pro-4.32.0.tar.gz -C liquibase
-  - export PATH=$PWD/liquibase/liquibase-4.32.0:$PATH
-  - echo "liquibase.licenseKey: $LIQUIBASE_LICENSE_KEY" > liquibase/liquibase-4.32.0/liquibase.properties
-  - echo "liquibase.licenseKey: $LIQUIBASE_LICENSE_KEY" > liquibase/liquibase-$LIQUIBASE_VERSION/liquibase.properties
+before_script:
+  - |
+    echo "[+] Creating test DB and user..."
+    psql -U postgres -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
+    psql -U postgres -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
 
 script:
-  - liquibase --changeLogFile=changelog.xml \
-              --url=jdbc:h2:mem:testdb \
-              --username=sa \
-              --password= \
-              update
+  - echo "[+] Running liquibase update from Docker..."
+  - docker run --rm \
+      -e LIQUIBASE_LICENSE_KEY=$LIQUIBASE_LICENSE_KEY \
+      -v $PWD:/liquibase/workspace \
+      liquibase/liquibase:$LIQUIBASE_VERSION \
+      --changeLogFile=changelog.xml \
+      --url=jdbc:postgresql://$DB_HOST:$DB_PORT/$DB_NAME \
+      --username=$DB_USER \
+      --password=$DB_PASS \
+      update
