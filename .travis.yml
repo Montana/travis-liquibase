@@ -44,9 +44,26 @@ script:
   - echo "[+] Testing Liquibase installation..."
   - docker run --rm $IMAGE_NAME --version
   
-  # Test database connectivity
+  # Test database connectivity with a simple command
   - echo "[+] Testing database connectivity..."
-  - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver status --verbose
+  - |
+    # Create a minimal changelog for testing
+    cat > test-changelog.xml << 'EOF'
+    <?xml version="1.0" encoding="UTF-8"?>
+    <databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+        
+        <changeSet id="test-connection" author="travis">
+            <comment>Test connection changeSet</comment>
+            <sql>SELECT 1;</sql>
+        </changeSet>
+    </databaseChangeLog>
+    EOF
+  
+  - docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=/workspace/test-changelog.xml status --verbose
   
   # Run sample changelog if it exists
   - |
@@ -69,6 +86,8 @@ script:
     fi
 
 after_script:
+  # Clean up test files
+  - rm -f test-changelog.xml || true
   # Clean up containers
   - docker stop $DB_CONTAINER || true
   - docker rm $DB_CONTAINER || true
@@ -78,6 +97,12 @@ after_script:
 cache:
   directories:
     - $HOME/docker
+
+# Notifications (optional)
+notifications:
+  email:
+    on_success: change
+    on_failure: always
 
 # Build matrix for testing different scenarios (optional)
 jobs:
@@ -93,7 +118,22 @@ jobs:
       script:
         - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:$POSTGRES_VERSION
         - sleep 10
-        - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver status --verbose
+        - |
+          cat > test-changelog.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <databaseChangeLog
+              xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                                http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+              
+              <changeSet id="test-connection-pg14" author="travis">
+                  <comment>Test connection changeSet for PostgreSQL 14</comment>
+                  <sql>SELECT version();</sql>
+              </changeSet>
+          </databaseChangeLog>
+          EOF
+        - docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=/workspace/test-changelog.xml status --verbose
 
 # Only build on specific branches (optional)
 branches:
