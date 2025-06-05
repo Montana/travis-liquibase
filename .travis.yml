@@ -6,14 +6,11 @@ services:
 
 env:
   global:
-    - IMAGE_NAME=liquibase-pro:4.32.0
     - DB_NAME=liquibasedb
     - DB_USER=liquibase
     - DB_PASS=secret
     - DB_PORT=5432
     - DB_CONTAINER=pgdb
-    - DOCKER_BUILDKIT=1
-    - COMPOSE_DOCKER_CLI_BUILD=1
 
 matrix:
   include:
@@ -30,11 +27,6 @@ before_install:
   - docker --version
   - docker system prune -f || true
   - docker pull postgres:${POSTGRES_VERSION:-15-alpine}
-  - docker pull postgres:15-alpine
-
-install:
-  - echo "[+] Building Liquibase Docker image from Dockerfile..."
-  - docker build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1 -t $IMAGE_NAME .
 
 script:
   - echo "[+] Starting PostgreSQL container..."
@@ -51,182 +43,84 @@ script:
       fi
       sleep 1
     done
-  - echo "[+] Testing Liquibase installation..."
-  - docker run --rm $IMAGE_NAME --version
-  - echo "[+] Testing basic database connectivity..."
-  - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --help
-  - echo "[+] Testing status command with changelog..."
-  - |
-    cat > test-changelog.xml << 'EOF'
-    <?xml version="1.0" encoding="UTF-8"?>
-    <databaseChangeLog
-        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
-                          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-        <changeSet id="test-connection" author="travis">
-            <comment>Test connection changeSet</comment>
-            <sql>SELECT 1;</sql>
-        </changeSet>
-    </databaseChangeLog>
-    EOF
+  - echo "[+] Applying database schema..."
+  - docker cp schema.sql $DB_CONTAINER:/tmp/schema.sql
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -f /tmp/schema.sql
 
-  - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
+  - echo "========================================"
+  - echo "=== DATABASE INSPECTION RESULTS ==="
+  - echo "========================================"
 
-  - |
-    if [ -f "changelog.xml" ] || [ -f "changelog.sql" ] || [ -f "changelog.yaml" ]; then
-      echo "[+] Running Liquibase update with existing changelog..."
-      CHANGELOG_FILE=""
-      if [ -f "changelog.xml" ]; then CHANGELOG_FILE="changelog.xml"; fi
-      if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
-      if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
+  - echo "[+] === DATABASE TABLES ==="
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+    SELECT table_name, table_type
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+    ORDER BY table_name;
+    "
 
-      echo "[+] Testing rollback functionality..."
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --changelog-file=$CHANGELOG_FILE \
-        rollback --tag=test_rollback
+  - echo "[+] === YOUR BUSINESS DATA ==="
+  - echo "[+] Roles table:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;"
 
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --changelog-file=$CHANGELOG_FILE \
-        update
+  - echo "[+] Users table:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;"
 
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --changelog-file=$CHANGELOG_FILE \
-        tag test_rollback
+  - echo "[+] User-Role relationships:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+    SELECT u.username, r.name as role_name
+    FROM users u
+    JOIN user_roles ur ON u.id = ur.user_id
+    JOIN roles r ON ur.role_id = r.id;
+    "
 
-      echo "[+] Verifying changes were applied..."
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --changelog-file=$CHANGELOG_FILE \
-        status --verbose
+  - echo "[+] === TABLE STRUCTURES ==="
+  - echo "[+] Users table structure:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users"
 
-      echo "========================================"
-      echo "=== DATABASE INSPECTION RESULTS ==="
-      echo "========================================"
+  - echo "[+] Roles table structure:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d roles"
 
-      echo "[+] === LIQUIBASE DEPLOYMENT HISTORY ==="
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --changelog-file=$CHANGELOG_FILE \
-        history
+  - echo "[+] User_roles table structure:"
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles"
 
-      echo "[+] === GENERATING DATABASE SNAPSHOT ==="
-      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
-        --search-path=/workspace \
-        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
-        --username=$DB_USER \
-        --password=$DB_PASS \
-        --driver=org.postgresql.Driver \
-        --output-file=database-snapshot.json \
-        snapshot --snapshot-format=json
-      echo "[+] Database snapshot saved to database-snapshot.json"
+  - echo "[+] === DATABASE CONSTRAINTS ==="
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+    SELECT
+        tc.table_name,
+        kcu.column_name,
+        ccu.table_name AS foreign_table_name,
+        ccu.column_name AS foreign_column_name
+    FROM
+        information_schema.table_constraints AS tc
+        JOIN information_schema.key_column_usage AS kcu
+          ON tc.constraint_name = kcu.constraint_name
+        JOIN information_schema.constraint_column_usage AS ccu
+          ON ccu.constraint_name = tc.constraint_name
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+    ORDER BY tc.table_name;
+    "
 
-      echo "[+] === DATABASE TABLES ==="
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT table_name, table_type
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      ORDER BY table_name;
-      "
+  - echo "[+] === DATABASE INDEXES ==="
+  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+    SELECT
+        schemaname,
+        tablename,
+        indexname,
+        indexdef
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+    ORDER BY tablename, indexname;
+    "
 
-      echo "[+] === LIQUIBASE CHANGE LOG TRACKING ==="
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT id, author, filename, dateexecuted, orderexecuted, exectype, md5sum
-      FROM databasechangelog
-      ORDER BY orderexecuted;
-      "
-
-      echo "[+] === YOUR BUSINESS DATA ==="
-      echo "[+] Roles table:"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;" || echo "No roles table found"
-
-      echo "[+] Users table (if exists):"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;" || echo "No users table found"
-
-      echo "[+] User-Role relationships (if exist):"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT u.username, r.role_name
-      FROM users u
-      JOIN user_roles ur ON u.id = ur.user_id
-      JOIN roles r ON ur.role_id = r.id;
-      " || echo "No user-role relationships found"
-
-      echo "[+] === TABLE STRUCTURES ==="
-      echo "[+] Users table structure:"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users" || echo "No users table"
-
-      echo "[+] Roles table structure:"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d roles" || echo "No roles table"
-
-      echo "[+] User_roles table structure:"
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles" || echo "No user_roles table"
-
-      echo "[+] === DATABASE CONSTRAINTS ==="
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT
-          tc.table_name,
-          kcu.column_name,
-          ccu.table_name AS foreign_table_name,
-          ccu.column_name AS foreign_column_name
-      FROM
-          information_schema.table_constraints AS tc
-          JOIN information_schema.key_column_usage AS kcu
-            ON tc.constraint_name = kcu.constraint_name
-          JOIN information_schema.constraint_column_usage AS ccu
-            ON ccu.constraint_name = tc.constraint_name
-      WHERE tc.constraint_type = 'FOREIGN KEY'
-      ORDER BY tc.table_name;
-      "
-
-      echo "[+] === DATABASE INDEXES ==="
-      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
-      SELECT
-          schemaname,
-          tablename,
-          indexname,
-          indexdef
-      FROM pg_indexes
-      WHERE schemaname = 'public'
-      ORDER BY tablename, indexname;
-      "
-
-      echo "========================================"
-      echo "=== DATABASE INSPECTION COMPLETE ==="
-      echo "========================================"
-
-    else
-      echo "[+] No changelog files found, skipping update test"
-    fi
+  - echo "========================================"
+  - echo "=== DATABASE INSPECTION COMPLETE ==="
+  - echo "========================================"
 
 after_script:
-  - rm -f test-changelog.xml || true
   - docker stop $DB_CONTAINER || true
   - docker rm $DB_CONTAINER || true
-  - docker rmi $IMAGE_NAME || true
 
 cache:
   directories:
@@ -245,20 +139,3 @@ branches:
   only:
     - master
     - develop
-    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
-
-stages:
-  - name: "Build and Test"
-  - name: "Extended Tests"
-  - name: "Deploy"
-    if: branch = master
-
-deploy:
-  provider: script
-  script: |
-    if [ "$TRAVIS_BRANCH" = "master" ]; then
-      echo "Deploying to production..."
-      # Add your deployment commands here
-    fi
-  on:
-    branch: master
