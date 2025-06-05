@@ -44,10 +44,13 @@ script:
   - echo "[+] Testing Liquibase installation..."
   - docker run --rm $IMAGE_NAME --version
   
-  # Test database connectivity with a simple command
-  - echo "[+] Testing database connectivity..."
+  # Test database connectivity with simple command first
+  - echo "[+] Testing basic database connectivity..."
+  - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --help
+  
+  # Create a minimal changelog for testing and test status command
+  - echo "[+] Testing status command with changelog..."
   - |
-    # Create a minimal changelog for testing
     cat > test-changelog.xml << 'EOF'
     <?xml version="1.0" encoding="UTF-8"?>
     <databaseChangeLog
@@ -63,24 +66,48 @@ script:
     </databaseChangeLog>
     EOF
   
-  - docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=/workspace/test-changelog.xml status --verbose
+  # Test status command with proper volume mounting and working directory
+  - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
   
-  # Run sample changelog if it exists
+  # Run changelog update if it exists
   - |
     if [ -f "changelog.xml" ] || [ -f "changelog.sql" ] || [ -f "changelog.yaml" ]; then
-      echo "[+] Running Liquibase update..."
+      echo "[+] Running Liquibase update with existing changelog..."
       CHANGELOG_FILE=""
       if [ -f "changelog.xml" ]; then CHANGELOG_FILE="changelog.xml"; fi
       if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
       if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
       
-      docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+      # First run status to see what changes will be applied
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
         --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
         --username=$DB_USER \
         --password=$DB_PASS \
         --driver=org.postgresql.Driver \
-        --changeLogFile=/workspace/$CHANGELOG_FILE \
+        --changelog-file=$CHANGELOG_FILE \
+        status --verbose
+      
+      # Then run the update
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --changelog-file=$CHANGELOG_FILE \
         update
+        
+      # Verify the changes were applied
+      echo "[+] Verifying changes were applied..."
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --changelog-file=$CHANGELOG_FILE \
+        status --verbose
     else
       echo "[+] No changelog files found, skipping update test"
     fi
@@ -133,7 +160,7 @@ jobs:
               </changeSet>
           </databaseChangeLog>
           EOF
-        - docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=/workspace/test-changelog.xml status --verbose
+        - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
 
 # Only build on specific branches (optional)
 branches:
