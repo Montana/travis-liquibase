@@ -23,14 +23,17 @@ ARG LPM_SHA256=b9caecd34c98a6c19a2bc582e8064aff5251c5f1adbcd100d3403c5eceb5373a
 ARG LPM_SHA256_ARM=0adb3a96d7384b4da549979bf00217a8914f0df37d1ed8fdb1b4a4baebfa104c
 
 # Install Liquibase + LPM
-RUN apt-get update && apt-get install -y wget unzip && \
-    rm -rf /var/lib/apt/lists/* && \
+RUN apt-get clean && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends wget unzip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     wget -q https://github.com/liquibase/liquibase/releases/download/v${LIQUIBASE_VERSION}/liquibase-${LIQUIBASE_VERSION}.tar.gz && \
     echo "$LB_SHA256 *liquibase-${LIQUIBASE_VERSION}.tar.gz" | sha256sum -c - && \
     tar -xzf liquibase-${LIQUIBASE_VERSION}.tar.gz && \
     rm liquibase-${LIQUIBASE_VERSION}.tar.gz && \
     ln -s /liquibase/liquibase /usr/local/bin/liquibase
-
+    
 # Install LPM
 RUN mkdir -p /liquibase/bin && \
     arch="$(dpkg --print-architecture)" && \
