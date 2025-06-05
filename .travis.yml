@@ -1,0 +1,17 @@
+language: java
+jdk:
+  - openjdk17
+
+before_install:
+  - curl -L -o liquibase.tar.gz https://github.com/liquibase/liquibase/releases/download/v4.32.0/liquibase-4.32.0.tar.gz
+  - mkdir liquibase
+  - tar -xzf liquibase.tar.gz -C liquibase
+  - export PATH=$PWD/liquibase/liquibase-4.32.0:$PATH
+
+script:
+  - liquibase --version
+  - liquibase --changeLogFile=changelog.xml \
+              --url=jdbc:h2:mem:testdb \
+              --username=sa \
+              --password= \
+              update
