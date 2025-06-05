@@ -152,8 +152,8 @@
     <changeSet id="6" author="travis-ci" context="data">
         <comment>Insert test user (for development/testing only)</comment>
         <insert tableName="users">
-            <column name="username" value="testuser"/>
-            <column name="email" value="test@example.com"/>
+            <column name="username" value="montana"/>
+            <column name="email" value="montana@travis-ci.org"/>
             <column name="password_hash" value="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LFc3mAkCOYz6TtxMQ"/>
             <column name="first_name" value="Test"/>
             <column name="last_name" value="User"/>
