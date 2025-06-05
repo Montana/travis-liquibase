@@ -11,6 +11,7 @@ env:
     - DB_PASS=secret
     - DB_PORT=5432
     - DB_CONTAINER=pgdb
+    - DB_HOST=localhost
 
 matrix:
   include:
@@ -35,7 +36,7 @@ script:
   - echo "[+] Waiting for PostgreSQL to be ready..."
   - |
     for i in {1..30}; do
-      if docker exec $DB_CONTAINER pg_isready -U $DB_USER; then
+      if docker exec $DB_CONTAINER pg_isready -h localhost -p 5432 -U $DB_USER; then
         echo "PostgreSQL is ready!"
         break
       fi
@@ -48,16 +49,16 @@ script:
     done
 
   - echo "[+] Creating database if it doesn't exist..."
-  - docker exec $DB_CONTAINER psql -U $DB_USER -c "CREATE DATABASE $DB_NAME;" || true
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -c "CREATE DATABASE $DB_NAME;" || true
 
   - echo "[+] Verifying database connection..."
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT 1;" || exit 1
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "SELECT 1;" || exit 1
 
   - echo "[+] Applying database schema..."
   - docker cp schema.sql $DB_CONTAINER:/tmp/schema.sql
   - |
     for i in {1..3}; do
-      if docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -f /tmp/schema.sql; then
+      if docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -f /tmp/schema.sql; then
         echo "Schema applied successfully!"
         break
       fi
@@ -70,14 +71,14 @@ script:
     done
 
   - echo "[+] Verifying schema application..."
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" || exit 1
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" || exit 1
 
   - echo "========================================"
   - echo "=== DATABASE INSPECTION RESULTS ==="
   - echo "========================================"
 
   - echo "[+] === DATABASE TABLES ==="
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "
     SELECT table_name, table_type
     FROM information_schema.tables
     WHERE table_schema = 'public'
@@ -86,13 +87,13 @@ script:
 
   - echo "[+] === YOUR BUSINESS DATA ==="
   - echo "[+] Roles table:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;"
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;"
 
   - echo "[+] Users table:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;"
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;"
 
   - echo "[+] User-Role relationships:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "
     SELECT u.username, r.name as role_name
     FROM users u
     JOIN user_roles ur ON u.id = ur.user_id
@@ -101,16 +102,16 @@ script:
 
   - echo "[+] === TABLE STRUCTURES ==="
   - echo "[+] Users table structure:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users"
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "\d users"
 
   - echo "[+] Roles table structure:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d roles"
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "\d roles"
 
   - echo "[+] User_roles table structure:"
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles"
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "\d user_roles"
 
   - echo "[+] === DATABASE CONSTRAINTS ==="
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "
     SELECT
         tc.table_name,
         kcu.column_name,
@@ -127,7 +128,7 @@ script:
     "
 
   - echo "[+] === DATABASE INDEXES ==="
-  - docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+  - docker exec $DB_CONTAINER psql -h localhost -p 5432 -U $DB_USER -d $DB_NAME -c "
     SELECT
         schemaname,
         tablename,
