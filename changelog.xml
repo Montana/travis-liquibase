@@ -1,17 +1,227 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<databaseChangeLog 
+<databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
-                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
+    xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd
+                        http://www.liquibase.org/xml/ns/dbchangelog-ext
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd">
 
-    <changeSet id="1" author="you">
-        <createTable tableName="example">
-            <column name="id" type="int" autoIncrement="true">
-                <constraints primaryKey="true"/>
+    <!-- Initial database schema setup -->
+    <changeSet id="1" author="travis-ci" context="initial">
+        <comment>Create users table</comment>
+        <createTable tableName="users">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
             </column>
-            <column name="name" type="varchar(255)"/>
+            <column name="username" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="email" type="VARCHAR(100)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="password_hash" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="first_name" type="VARCHAR(50)"/>
+            <column name="last_name" type="VARCHAR(50)"/>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
         </createTable>
+        
+        <rollback>
+            <dropTable tableName="users"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="2" author="travis-ci" context="initial">
+        <comment>Create roles table</comment>
+        <createTable tableName="roles">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        
+        <rollback>
+            <dropTable tableName="roles"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="3" author="travis-ci" context="initial">
+        <comment>Create user_roles junction table</comment>
+        <createTable tableName="user_roles">
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="assigned_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        
+        <addPrimaryKey tableName="user_roles" columnNames="user_id,role_id"/>
+        
+        <addForeignKeyConstraint 
+            baseTableName="user_roles" 
+            baseColumnNames="user_id"
+            constraintName="fk_user_roles_user_id"
+            referencedTableName="users"
+            referencedColumnNames="id"
+            onDelete="CASCADE"/>
+            
+        <addForeignKeyConstraint 
+            baseTableName="user_roles" 
+            baseColumnNames="role_id"
+            constraintName="fk_user_roles_role_id"
+            referencedTableName="roles"
+            referencedColumnNames="id"
+            onDelete="CASCADE"/>
+        
+        <rollback>
+            <dropTable tableName="user_roles"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="4" author="travis-ci" context="initial">
+        <comment>Create indexes for better performance</comment>
+        <createIndex indexName="idx_users_email" tableName="users">
+            <column name="email"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_users_username" tableName="users">
+            <column name="username"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_users_active" tableName="users">
+            <column name="is_active"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_user_roles_user_id" tableName="user_roles">
+            <column name="user_id"/>
+        </createIndex>
+        
+        <rollback>
+            <dropIndex indexName="idx_users_email" tableName="users"/>
+            <dropIndex indexName="idx_users_username" tableName="users"/>
+            <dropIndex indexName="idx_users_active" tableName="users"/>
+            <dropIndex indexName="idx_user_roles_user_id" tableName="user_roles"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="5" author="travis-ci" context="data" runOnChange="false">
+        <comment>Insert default roles</comment>
+        <insert tableName="roles">
+            <column name="name" value="ADMIN"/>
+            <column name="description" value="Administrator role with full system access"/>
+        </insert>
+        
+        <insert tableName="roles">
+            <column name="name" value="USER"/>
+            <column name="description" value="Standard user role with basic access"/>
+        </insert>
+        
+        <insert tableName="roles">
+            <column name="name" value="MODERATOR"/>
+            <column name="description" value="Moderator role with content management access"/>
+        </insert>
+        
+        <rollback>
+            <delete tableName="roles">
+                <where>name IN ('ADMIN', 'USER', 'MODERATOR')</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="6" author="travis-ci" context="data">
+        <comment>Insert test user (for development/testing only)</comment>
+        <insert tableName="users">
+            <column name="username" value="testuser"/>
+            <column name="email" value="test@example.com"/>
+            <column name="password_hash" value="$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LFc3mAkCOYz6TtxMQ"/>
+            <column name="first_name" value="Test"/>
+            <column name="last_name" value="User"/>
+        </insert>
+        
+        <rollback>
+            <delete tableName="users">
+                <where>username = 'testuser'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="7" author="travis-ci" context="data">
+        <comment>Assign USER role to test user</comment>
+        <sql>
+            INSERT INTO user_roles (user_id, role_id) 
+            SELECT u.id, r.id 
+            FROM users u, roles r 
+            WHERE u.username = 'testuser' AND r.name = 'USER'
+        </sql>
+        
+        <rollback>
+            <sql>
+                DELETE FROM user_roles 
+                WHERE user_id = (SELECT id FROM users WHERE username = 'testuser')
+                AND role_id = (SELECT id FROM roles WHERE name = 'USER')
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Example of adding a new column (migration) -->
+    <changeSet id="8" author="travis-ci" context="migration-v1.1">
+        <comment>Add last_login column to users table</comment>
+        <addColumn tableName="users">
+            <column name="last_login" type="TIMESTAMP"/>
+        </addColumn>
+        
+        <rollback>
+            <dropColumn tableName="users" columnName="last_login"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Example of data migration -->
+    <changeSet id="9" author="travis-ci" context="migration-v1.1">
+        <comment>Set initial last_login for existing users</comment>
+        <sql>
+            UPDATE users 
+            SET last_login = created_at 
+            WHERE last_login IS NULL
+        </sql>
+        
+        <rollback>
+            <sql>UPDATE users SET last_login = NULL</sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Example of adding a constraint -->
+    <changeSet id="10" author="travis-ci" context="migration-v1.2">
+        <comment>Add check constraint for email format</comment>
+        <sql>
+            ALTER TABLE users 
+            ADD CONSTRAINT chk_email_format 
+            CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+        </sql>
+        
+        <rollback>
+            <sql>ALTER TABLE users DROP CONSTRAINT chk_email_format</sql>
+        </rollback>
     </changeSet>
 
 </databaseChangeLog>
