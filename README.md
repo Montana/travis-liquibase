@@ -320,10 +320,6 @@ docker run --rm liquibase-pro:4.32.0 lpm install <extension-name>
 
 For more information, visit the [Liquibase Documentation](https://docs.liquibase.com).
 
-## Author
-
-Michael Mendy (c) 2025.
-
 ## Docker Buildx (Bake) with Liquibase
 
 Docker Buildx (bake) provides advanced build capabilities for creating multi-platform Docker images. Here's how to use it with Liquibase:
