@@ -2,14 +2,22 @@ language: java
 jdk:
   - openjdk17
 
+env:
+  global:
+    - LIQUIBASE_VERSION=4.32.0
+
 before_install:
-  - curl -L -o https://package.liquibase.com/downloads/cli/liquibase/releases/pro/4.32.0/liquibase-pro-4.32.0.tar.gz
+  # Download and extract Liquibase Pro
+  - curl -L -o liquibase.tar.gz "https://download.liquibase.com/liquibase-pro/liquibase-pro-${LIQUIBASE_VERSION}.tar.gz"
   - mkdir liquibase
   - tar -xzf liquibase.tar.gz -C liquibase
-  - export PATH=$PWD/liquibase/liquibase-4.32.0:$PATH
+  - export PATH=$PWD/liquibase/liquibase-$LIQUIBASE_VERSION:$PATH
+
+  # Add Pro license key (must be set in Travis repo settings)
+  - echo "liquibase.licenseKey: $LIQUIBASE_LICENSE_KEY" > liquibase/liquibase-$LIQUIBASE_VERSION/liquibase.properties
 
 script:
-  - liquibase --version
+  # Run Liquibase using an in-memory H2 database and your changelog
   - liquibase --changeLogFile=changelog.xml \
               --url=jdbc:h2:mem:testdb \
               --username=sa \
