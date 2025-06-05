@@ -1,5 +1,5 @@
 language: shell
-dist: focal  # Use Ubuntu 20.04 instead of xenial (16.04)
+dist: noble 
 
 services:
   - docker
@@ -12,18 +12,13 @@ env:
     - DB_PASS=secret
     - DB_PORT=5432
     - DB_CONTAINER=pgdb
-    # LIQUIBASE_LICENSE_KEY should be set in Travis CI settings as a secure variable
-
+    
 before_install:
-  # Update Docker to latest version for better compatibility
   - sudo apt-get update
   - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
   - docker --version
   
-  # Clean up any existing containers/images
   - docker system prune -f || true
-  
-  # Pull PostgreSQL image early to avoid timeout during tests
   - docker pull postgres:15-alpine
 
 install:
@@ -31,24 +26,15 @@ install:
   - docker build --no-cache -t $IMAGE_NAME .
   
 script:
-  # Start PostgreSQL container
   - echo "[+] Starting PostgreSQL container..."
   - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:15-alpine
-  
-  # Wait for PostgreSQL to be ready
   - echo "[+] Waiting for PostgreSQL to be ready..."
   - sleep 10
   - docker exec $DB_CONTAINER pg_isready -U $DB_USER -d $DB_NAME
-  
-  # Test Liquibase Docker image
   - echo "[+] Testing Liquibase installation..."
   - docker run --rm $IMAGE_NAME --version
-  
-  # Test database connectivity with simple command first
   - echo "[+] Testing basic database connectivity..."
   - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --help
-  
-  # Create a minimal changelog for testing and test status command
   - echo "[+] Testing status command with changelog..."
   - |
     cat > test-changelog.xml << 'EOF'
@@ -66,10 +52,8 @@ script:
     </databaseChangeLog>
     EOF
   
-  # Test status command with proper volume mounting and working directory
   - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
-  
-  # Run changelog update if it exists
+
   - |
     if [ -f "changelog.xml" ] || [ -f "changelog.sql" ] || [ -f "changelog.yaml" ]; then
       echo "[+] Running Liquibase update with existing changelog..."
@@ -78,7 +62,6 @@ script:
       if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
       if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
       
-      # First run status to see what changes will be applied
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
         --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
@@ -88,7 +71,6 @@ script:
         --changelog-file=$CHANGELOG_FILE \
         status --verbose
       
-      # Then run the update
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
         --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
@@ -98,7 +80,6 @@ script:
         --changelog-file=$CHANGELOG_FILE \
         update
         
-      # Verify the changes were applied
       echo "[+] Verifying changes were applied..."
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -108,14 +89,7 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         status --verbose
-
-      # === NEW DATABASE INSPECTION SECTION ===
       
-      echo "========================================"
-      echo "=== DATABASE INSPECTION RESULTS ==="
-      echo "========================================"
-      
-      # Show deployment history
       echo "[+] === LIQUIBASE DEPLOYMENT HISTORY ==="
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -126,7 +100,6 @@ script:
         --changelog-file=$CHANGELOG_FILE \
         history
       
-      # Generate database snapshot (JSON format)
       echo "[+] === GENERATING DATABASE SNAPSHOT ==="
       docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
         --search-path=/workspace \
@@ -138,7 +111,6 @@ script:
         snapshot --snapshot-format=json
       echo "[+] Database snapshot saved to database-snapshot.json"
       
-      # Show what tables were created
       echo "[+] === DATABASE TABLES ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
       SELECT table_name, table_type 
@@ -147,7 +119,6 @@ script:
       ORDER BY table_name;
       "
       
-      # Show Liquibase tracking
       echo "[+] === LIQUIBASE CHANGE LOG TRACKING ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
       SELECT id, author, filename, dateexecuted, orderexecuted, exectype, md5sum
@@ -155,7 +126,6 @@ script:
       ORDER BY orderexecuted;
       "
       
-      # Show your business data
       echo "[+] === YOUR BUSINESS DATA ==="
       echo "[+] Roles table:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;" || echo "No roles table found"
@@ -171,7 +141,6 @@ script:
       JOIN roles r ON ur.role_id = r.id;
       " || echo "No user-role relationships found"
       
-      # Show table structures
       echo "[+] === TABLE STRUCTURES ==="
       echo "[+] Users table structure:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users" || echo "No users table"
@@ -182,7 +151,6 @@ script:
       echo "[+] User_roles table structure:"
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles" || echo "No user_roles table"
       
-      # Show foreign key relationships
       echo "[+] === DATABASE CONSTRAINTS ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
       SELECT 
@@ -200,7 +168,6 @@ script:
       ORDER BY tc.table_name;
       "
       
-      # Show indexes
       echo "[+] === DATABASE INDEXES ==="
       docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
       SELECT 
@@ -212,41 +179,31 @@ script:
       WHERE schemaname = 'public'
       ORDER BY tablename, indexname;
       "
-      
-      echo "========================================"
-      echo "=== DATABASE INSPECTION COMPLETE ==="
-      echo "========================================"
-      
+            
     else
       echo "[+] No changelog files found, skipping update test"
     fi
 
 after_script:
-  # Clean up test files
   - rm -f test-changelog.xml || true
-  # Clean up containers
   - docker stop $DB_CONTAINER || true
   - docker rm $DB_CONTAINER || true
   - docker rmi $IMAGE_NAME || true
 
-# Caching to speed up builds
 cache:
   directories:
     - $HOME/docker
 
-# Notifications (optional)
 notifications:
   email:
     on_success: change
     on_failure: always
 
-# Build matrix for testing different scenarios (optional)
 jobs:
   include:
     - stage: "Build and Test"
       name: "Liquibase Pro Docker Build"
     
-    # Optional: Test with different PostgreSQL versions
     - stage: "Extended Tests"
       name: "Test with PostgreSQL 14"
       env:
@@ -271,9 +228,8 @@ jobs:
           EOF
         - docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME --search-path=/workspace --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver --changelog-file=test-changelog.xml status --verbose
 
-# Only build on specific branches (optional)
 branches:
   only:
     - master
     - develop
-    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/  # Version tags
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
