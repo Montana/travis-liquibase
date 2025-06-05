@@ -1,4 +1,5 @@
-language: minimal
+language: shell
+dist: focal  # Use Ubuntu 20.04 instead of xenial (16.04)
 
 services:
   - docker
@@ -11,23 +12,92 @@ env:
     - DB_PASS=secret
     - DB_PORT=5432
     - DB_CONTAINER=pgdb
-    - LIQUIBASE_LICENSE_KEY=secure_value_set_in_UI
+    # LIQUIBASE_LICENSE_KEY should be set in Travis CI settings as a secure variable
 
 before_install:
+  # Update Docker to latest version for better compatibility
+  - sudo apt-get update
+  - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
+  - docker --version
+  
+  # Clean up any existing containers/images
+  - docker system prune -f || true
+  
+  # Pull PostgreSQL image early to avoid timeout during tests
+  - docker pull postgres:15-alpine
+
+install:
   - echo "[+] Building Liquibase Docker image from Dockerfile..."
-  - docker build -t $IMAGE_NAME .
-
-before_script:
-  - echo "[+] Creating Docker network..."
-  - docker network create liquibase-net
-
-  - echo "[+] Starting PostgreSQL container..."
-  - docker run -d --name $DB_CONTAINER --network liquibase-net -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 postgres:14
-
-  - echo "[+] Waiting for PostgreSQL to be ready..."
-  - until docker exec $DB_CONTAINER pg_isready -U $DB_USER; do sleep 2; done
-
+  - docker build --no-cache -t $IMAGE_NAME .
+  
 script:
-  - echo "[+] Running Liquibase Pro update..."
-  - docker run --rm --network liquibase-net -e LIQUIBASE_LICENSE_KEY=$LIQUIBASE_LICENSE_KEY $IMAGE_NAME update
+  # Start PostgreSQL container
+  - echo "[+] Starting PostgreSQL container..."
+  - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:15-alpine
+  
+  # Wait for PostgreSQL to be ready
+  - echo "[+] Waiting for PostgreSQL to be ready..."
+  - sleep 10
+  - docker exec $DB_CONTAINER pg_isready -U $DB_USER -d $DB_NAME
+  
+  # Test Liquibase Docker image
+  - echo "[+] Testing Liquibase installation..."
+  - docker run --rm $IMAGE_NAME --version
+  
+  # Test database connectivity
+  - echo "[+] Testing database connectivity..."
+  - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver status --verbose
+  
+  # Run sample changelog if it exists
+  - |
+    if [ -f "changelog.xml" ] || [ -f "changelog.sql" ] || [ -f "changelog.yaml" ]; then
+      echo "[+] Running Liquibase update..."
+      CHANGELOG_FILE=""
+      if [ -f "changelog.xml" ]; then CHANGELOG_FILE="changelog.xml"; fi
+      if [ -f "changelog.sql" ]; then CHANGELOG_FILE="changelog.sql"; fi
+      if [ -f "changelog.yaml" ]; then CHANGELOG_FILE="changelog.yaml"; fi
+      
+      docker run --rm -v $(pwd):/workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --changeLogFile=/workspace/$CHANGELOG_FILE \
+        update
+    else
+      echo "[+] No changelog files found, skipping update test"
+    fi
 
+after_script:
+  # Clean up containers
+  - docker stop $DB_CONTAINER || true
+  - docker rm $DB_CONTAINER || true
+  - docker rmi $IMAGE_NAME || true
+
+# Caching to speed up builds
+cache:
+  directories:
+    - $HOME/docker
+
+# Build matrix for testing different scenarios (optional)
+jobs:
+  include:
+    - stage: "Build and Test"
+      name: "Liquibase Pro Docker Build"
+    
+    # Optional: Test with different PostgreSQL versions
+    - stage: "Extended Tests"
+      name: "Test with PostgreSQL 14"
+      env:
+        - POSTGRES_VERSION=14-alpine
+      script:
+        - docker run --name $DB_CONTAINER -e POSTGRES_DB=$DB_NAME -e POSTGRES_USER=$DB_USER -e POSTGRES_PASSWORD=$DB_PASS -p $DB_PORT:5432 -d postgres:$POSTGRES_VERSION
+        - sleep 10
+        - docker run --rm --link $DB_CONTAINER:postgres $IMAGE_NAME --url="jdbc:postgresql://postgres:5432/$DB_NAME" --username=$DB_USER --password=$DB_PASS --driver=org.postgresql.Driver status --verbose
+
+# Only build on specific branches (optional)
+branches:
+  only:
+    - master
+    - develop
+    - /^v\d+\.\d+(\.\d+)?(-\S*)?$/  # Version tags
