@@ -8,7 +8,6 @@
                         http://www.liquibase.org/xml/ns/dbchangelog-ext
                         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd">
 
-    <!-- Initial database schema setup -->
     <changeSet id="1" author="travis-ci" context="initial">
         <comment>Create users table</comment>
         <createTable tableName="users">
@@ -184,7 +183,6 @@
         </rollback>
     </changeSet>
 
-    <!-- Example of adding a new column (migration) -->
     <changeSet id="8" author="travis-ci" context="migration-v1.1">
         <comment>Add last_login column to users table</comment>
         <addColumn tableName="users">
@@ -196,7 +194,6 @@
         </rollback>
     </changeSet>
 
-    <!-- Example of data migration -->
     <changeSet id="9" author="travis-ci" context="migration-v1.1">
         <comment>Set initial last_login for existing users</comment>
         <sql>
@@ -210,7 +207,6 @@
         </rollback>
     </changeSet>
 
-    <!-- Example of adding a constraint -->
     <changeSet id="10" author="travis-ci" context="migration-v1.2">
         <comment>Add check constraint for email format</comment>
         <sql>
@@ -221,6 +217,108 @@
         
         <rollback>
             <sql>ALTER TABLE users DROP CONSTRAINT chk_email_format</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="11" author="travis-ci" context="migration-v1.3">
+        <comment>Create user preferences table</comment>
+        <createTable tableName="user_preferences">
+            <column name="user_id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="theme" type="VARCHAR(20)" defaultValue="light">
+                <constraints nullable="false"/>
+            </column>
+            <column name="language" type="VARCHAR(10)" defaultValue="en">
+                <constraints nullable="false"/>
+            </column>
+            <column name="notifications_enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="timezone" type="VARCHAR(50)" defaultValue="UTC">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint 
+            baseTableName="user_preferences" 
+            baseColumnNames="user_id"
+            constraintName="fk_user_preferences_user_id"
+            referencedTableName="users"
+            referencedColumnNames="id"
+            onDelete="CASCADE"/>
+
+        <rollback>
+            <dropTable tableName="user_preferences"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="12" author="travis-ci" context="migration-v1.3">
+        <comment>Create audit logs table</comment>
+        <createTable tableName="audit_logs">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="action" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entity_type" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entity_id" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="details" type="TEXT"/>
+            <column name="ip_address" type="VARCHAR(45)"/>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint 
+            baseTableName="audit_logs" 
+            baseColumnNames="user_id"
+            constraintName="fk_audit_logs_user_id"
+            referencedTableName="users"
+            referencedColumnNames="id"
+            onDelete="SET NULL"/>
+
+        <createIndex indexName="idx_audit_logs_user_id" tableName="audit_logs">
+            <column name="user_id"/>
+        </createIndex>
+
+        <createIndex indexName="idx_audit_logs_created_at" tableName="audit_logs">
+            <column name="created_at"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="audit_logs"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="13" author="travis-ci" context="migration-v1.3">
+        <comment>Add status column to users table</comment>
+        <addColumn tableName="users">
+            <column name="status" type="VARCHAR(20)" defaultValue="ACTIVE">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE users 
+            ADD CONSTRAINT chk_user_status 
+            CHECK (status IN ('ACTIVE', 'SUSPENDED', 'BANNED'))
+        </sql>
+
+        <rollback>
+            <sql>ALTER TABLE users DROP CONSTRAINT chk_user_status</sql>
+            <dropColumn tableName="users" columnName="status"/>
         </rollback>
     </changeSet>
 
