@@ -1,5 +1,7 @@
 # Travis CI + Liquibase Pro
 
+![Liquibase](https://github.com/user-attachments/assets/f8b2fef6-d029-4025-adaa-0bb6e7beb70b)
+
 This project builds a custom Docker image for Liquibase Pro version 4.32.0, including Liquibase Package Manager (LPM) and support for PostgreSQL migrations.
 
 ## Features
