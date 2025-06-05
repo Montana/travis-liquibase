@@ -14,24 +14,29 @@ WORKDIR /liquibase
 ARG LIQUIBASE_VERSION=4.32.0
 ARG LB_SHA256=10910d42ae9990c95a4ac8f0a3665a24bd40d08fb264055d78b923a512774d54
 ARG LPM_VERSION=0.2.9
-ARG LPM_SHA256=...
-ARG LPM_SHA256_ARM=...
+ARG LPM_SHA256=b9caecd34c98a6c19a2bc582e8064aff5251c5f1adbcd100d3403c5eceb5373a
+ARG LPM_SHA256_ARM=0adb3a96d7384b4da549979bf00217a8914f0df37d1ed8fdb1b4a4baebfa104c
 
-RUN set -eux; \
+RUN set -ex && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/cache/apt/*.bin && \
+    apt-get clean && \
     apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        wget unzip ca-certificates && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing wget unzip ca-certificates && \
+    apt-get autoremove -y && \
+    apt-get autoclean && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/cache/apt/*.bin /tmp/* /var/tmp/* && \
     wget -q https://github.com/liquibase/liquibase/releases/download/v${LIQUIBASE_VERSION}/liquibase-${LIQUIBASE_VERSION}.tar.gz && \
     echo "$LB_SHA256 *liquibase-${LIQUIBASE_VERSION}.tar.gz" | sha256sum -c - && \
     tar -xzf liquibase-${LIQUIBASE_VERSION}.tar.gz && \
     rm liquibase-${LIQUIBASE_VERSION}.tar.gz && \
-    ln -s /liquibase/liquibase /usr/local/bin/liquibase && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    ln -s /liquibase/liquibase /usr/local/bin/liquibase
 
-RUN set -eux; \
-    ARCH=$(dpkg --print-architecture); \
-    LPM_SHA="$([ "$ARCH" = "amd64" ] && echo $LPM_SHA256 || echo $LPM_SHA256_ARM)"; \
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        LPM_SHA=$LPM_SHA256; \
+    else \
+        LPM_SHA=$LPM_SHA256_ARM; \
+    fi && \
     wget -q https://github.com/liquibase/liquibase-package-manager/releases/download/v${LPM_VERSION}/lpm-${LPM_VERSION}-linux.zip && \
     echo "$LPM_SHA *lpm-${LPM_VERSION}-linux.zip" | sha256sum -c - && \
     unzip lpm-${LPM_VERSION}-linux.zip && \
@@ -39,8 +44,9 @@ RUN set -eux; \
     chmod +x lpm && \
     ln -s /liquibase/lpm /usr/local/bin/lpm
 
-RUN mkdir -p /liquibase/extensions && \
-    chown -R liquibase:liquibase /liquibase
+RUN mkdir -p /liquibase/extensions
+
+RUN chown -R liquibase:liquibase /liquibase
 
 USER liquibase
 
@@ -51,4 +57,3 @@ EXPOSE 8080
 
 ENTRYPOINT ["liquibase"]
 CMD ["--help"]
-
