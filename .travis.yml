@@ -108,6 +108,115 @@ script:
         --driver=org.postgresql.Driver \
         --changelog-file=$CHANGELOG_FILE \
         status --verbose
+
+      # === NEW DATABASE INSPECTION SECTION ===
+      
+      echo "========================================"
+      echo "=== DATABASE INSPECTION RESULTS ==="
+      echo "========================================"
+      
+      # Show deployment history
+      echo "[+] === LIQUIBASE DEPLOYMENT HISTORY ==="
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --changelog-file=$CHANGELOG_FILE \
+        history
+      
+      # Generate database snapshot (JSON format)
+      echo "[+] === GENERATING DATABASE SNAPSHOT ==="
+      docker run --rm -v $(pwd):/workspace -w /workspace --link $DB_CONTAINER:postgres $IMAGE_NAME \
+        --search-path=/workspace \
+        --url="jdbc:postgresql://postgres:5432/$DB_NAME" \
+        --username=$DB_USER \
+        --password=$DB_PASS \
+        --driver=org.postgresql.Driver \
+        --output-file=database-snapshot.json \
+        snapshot --snapshot-format=json
+      echo "[+] Database snapshot saved to database-snapshot.json"
+      
+      # Show what tables were created
+      echo "[+] === DATABASE TABLES ==="
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+      SELECT table_name, table_type 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      ORDER BY table_name;
+      "
+      
+      # Show Liquibase tracking
+      echo "[+] === LIQUIBASE CHANGE LOG TRACKING ==="
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+      SELECT id, author, filename, dateexecuted, orderexecuted, exectype, md5sum
+      FROM databasechangelog 
+      ORDER BY orderexecuted;
+      "
+      
+      # Show your business data
+      echo "[+] === YOUR BUSINESS DATA ==="
+      echo "[+] Roles table:"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT * FROM roles;" || echo "No roles table found"
+      
+      echo "[+] Users table (if exists):"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "SELECT id, username, email, created_at, last_login FROM users;" || echo "No users table found"
+      
+      echo "[+] User-Role relationships (if exist):"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+      SELECT u.username, r.role_name 
+      FROM users u 
+      JOIN user_roles ur ON u.id = ur.user_id 
+      JOIN roles r ON ur.role_id = r.id;
+      " || echo "No user-role relationships found"
+      
+      # Show table structures
+      echo "[+] === TABLE STRUCTURES ==="
+      echo "[+] Users table structure:"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d users" || echo "No users table"
+      
+      echo "[+] Roles table structure:"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d roles" || echo "No roles table"
+      
+      echo "[+] User_roles table structure:"
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "\d user_roles" || echo "No user_roles table"
+      
+      # Show foreign key relationships
+      echo "[+] === DATABASE CONSTRAINTS ==="
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+      SELECT 
+          tc.table_name, 
+          kcu.column_name, 
+          ccu.table_name AS foreign_table_name,
+          ccu.column_name AS foreign_column_name 
+      FROM 
+          information_schema.table_constraints AS tc 
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+      ORDER BY tc.table_name;
+      "
+      
+      # Show indexes
+      echo "[+] === DATABASE INDEXES ==="
+      docker exec $DB_CONTAINER psql -U $DB_USER -d $DB_NAME -c "
+      SELECT 
+          schemaname,
+          tablename,
+          indexname,
+          indexdef
+      FROM pg_indexes 
+      WHERE schemaname = 'public'
+      ORDER BY tablename, indexname;
+      "
+      
+      echo "========================================"
+      echo "=== DATABASE INSPECTION COMPLETE ==="
+      echo "========================================"
+      
     else
       echo "[+] No changelog files found, skipping update test"
     fi
