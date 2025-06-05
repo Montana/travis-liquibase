@@ -3,7 +3,7 @@ jdk:
   - openjdk17
 
 before_install:
-  - curl -L -o liquibase.tar.gz https://github.com/liquibase/liquibase/releases/download/v4.32.0/liquibase-4.32.0.tar.gz
+  - curl -L -o https://package.liquibase.com/downloads/cli/liquibase/releases/pro/4.32.0/liquibase-pro-4.32.0.tar.gz
   - mkdir liquibase
   - tar -xzf liquibase.tar.gz -C liquibase
   - export PATH=$PWD/liquibase/liquibase-4.32.0:$PATH
