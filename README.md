@@ -200,33 +200,6 @@ liquibase.pro.licenseKey=YOUR_LICENSE_KEY_HERE
 logLevel=INFO
 ```
 
-## CI/CD Integration
-
-### GitHub Actions Example
-
-```yaml
-name: Database Migration
-on:
-  push:
-    branches: [main]
-
-jobs:
-  migrate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Run Liquibase Update
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/db:/liquibase/changelog \
-            -e LIQUIBASE_COMMAND_URL=${{ secrets.DB_URL }} \
-            -e LIQUIBASE_COMMAND_USERNAME=${{ secrets.DB_USER }} \
-            -e LIQUIBASE_COMMAND_PASSWORD=${{ secrets.DB_PASS }} \
-            liquibase-pro:4.32.0 \
-            liquibase update
-```
-
 ## Author
 
 Michael Mendy (c) 2025.
